@@ -1,0 +1,5 @@
+requests - Để thực hiện các HTTP requests đến API Open-Meteo
+
+pandas - Để xử lý dữ liệu dạng bảng và lưu vào Excel
+
+openpyxl - Engine để pandas có thể ghi file Excel (.xlsx)
