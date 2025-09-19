@@ -1,9 +1,10 @@
 # weather_nasa_3cities.py
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import pandas as pd
 import os
+
 class NASAWeather:
     def __init__(self):
         self.session = requests.Session()
@@ -11,7 +12,7 @@ class NASAWeather:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def get_nasa_gmao_forecast (self, latitude, longitude):
+    def get_nasa_gmao_forecast(self, latitude, longitude):
         """Lấy dữ liệu dự báo sử dụng model NASA GMAO thông qua Open-Meteo"""
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
@@ -36,23 +37,24 @@ class NASAWeather:
         except Exception as e:
             print(f"❌ Lỗi kết nối: {e}")
             return None
+            
     def _process_forecast_data(self, data, lat, lon):
-        """DATA PROCESSING"""
+        """DATA PROCESSING - Trả về dữ liệu dự báo chi tiết"""
         try:
             current = data['current']
             hourly = data['hourly']
             daily = data['daily']
-            # Lấy dữ liệu cho giờ hiện tại
-            current_time = datetime.now().strftime("%Y-%m-%dT%H:00")
-            if current_time in hourly['time']:
-                time_index = hourly['time'].index(current_time)
-                hourly_temp = hourly['temperature_2m'][time_index]
-                hourly_precip = hourly['precipitation'][time_index]
-                hourly_wind = hourly['wind_speed_10m'][time_index]
-            else:
-                hourly_temp = current['temperature_2m']
-                hourly_precip = current['precipitation']
-                hourly_wind = current['wind_speed_10m']
+
+            hourly_forecast = []
+            # Lấy toàn bộ 24 khung giờ dự báo
+            for i in range(len(hourly['time'])):
+                hourly_forecast.append({
+                    'time': hourly['time'][i],
+                    'temperature_2m': hourly['temperature_2m'][i],
+                    'precipitation': hourly['precipitation'][i],
+                    'wind_speed_10m': hourly['wind_speed_10m'][i]
+                })
+
             return {
                 'thanh_pho': '',
                 'nguon': 'NASA GMAO Model via Open-Meteo',
@@ -60,16 +62,14 @@ class NASAWeather:
                 'vi_do': lat,
                 'kinh_do': lon,
                 'nhiet_do_hien_tai': current['temperature_2m'],
-                'nhiet_do_gio': hourly_temp,
-                'nhiet_do_cao_nhat': daily['temperature_2m_max'][0],
-                'nhiet_do_thap_nhat': daily['temperature_2m_min'][0],
                 'do_am': current['relative_humidity_2m'],
                 'luong_mua_hien_tai': current['precipitation'],
-                'luong_mua_gio': hourly_precip,
-                'tong_luong_mua_ngay': daily['precipitation_sum'][0],
-                'gio_toc_do': current['wind_speed_10m'],
-                'gio_toc_do_gio': hourly_wind,
+                'gio_toc_do_hien_tai': current['wind_speed_10m'],
                 'ma_thoi_tiet': current['weather_code'],
+                'nhiet_do_cao_nhat_ngay': daily['temperature_2m_max'][0],
+                'nhiet_do_thap_nhat_ngay': daily['temperature_2m_min'][0],
+                'tong_luong_mua_ngay': daily['precipitation_sum'][0],
+                'du_bao_ca_ngay': hourly_forecast, # Lưu trữ toàn bộ dữ liệu dự báo 24h
                 'la_du_bao': True,
                 'thoi_gian_cap_nhat': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
@@ -79,7 +79,6 @@ class NASAWeather:
     
     def get_weather_data(self, city_name, latitude, longitude):
         print(f"🌍 Đang lấy dữ liệu thời tiết cho {city_name}...")
-        # Thử lấy dữ liệu dự báo trước
         weather_data = self.get_nasa_gmao_forecast(latitude, longitude)
         if weather_data:
             weather_data['thanh_pho'] = city_name
@@ -87,6 +86,7 @@ class NASAWeather:
             return weather_data
         print(f"❌ Không thể lấy dữ liệu cho {city_name}")
         return None
+    
     def save_to_json(self, weather_data, city_name):
         """Lưu dữ liệu vào file JSON"""
         if not weather_data:
@@ -103,36 +103,42 @@ class NASAWeather:
             return False
     
     def save_to_excel(self, weather_data, city_name):
-        """Lưu dữ liệu vào file Excel"""
+        """Lưu dữ liệu vào file Excel, bao gồm 24h dự báo"""
         if not weather_data:
             return False
         try:
-            # Chuẩn bị dữ liệu cho Excel
-            excel_data = [{
+            # Chuẩn bị dữ liệu cho DataFrame
+            excel_data = []
+            base_info = {
                 'Thành_phố': city_name,
                 'Nguồn_dữ_liệu': weather_data['nguon'],
-                'Thời_gian': weather_data['thoi_gian'],
+                'Thời_gian_cập_nhật': weather_data['thoi_gian_cap_nhat'],
                 'Vĩ_độ': weather_data['vi_do'],
                 'Kinh_độ': weather_data['kinh_do'],
-                'Nhiệt_độ_hiện_tại (°C)': weather_data['nhiet_do_hien_tai'],
-                'Nhiệt_độ_giờ (°C)': weather_data['nhiet_do_gio'],
-                'Nhiệt_độ_cao_nhất (°C)': weather_data['nhiet_do_cao_nhat'],
-                'Nhiệt_độ_thấp_nhất (°C)': weather_data['nhiet_do_thap_nhat'],
+                'Nhiệt_độ_hiện_tại (C)': weather_data['nhiet_do_hien_tai'],
                 'Độ_ẩm (%)': weather_data['do_am'],
                 'Lượng_mưa_hiện_tại (mm)': weather_data['luong_mua_hien_tai'],
-                'Lượng_mưa_giờ (mm)': weather_data['luong_mua_gio'],
+                'Gió_tốc_độ_hiện_tại (m/s)': weather_data['gio_toc_do_hien_tai'],
+                'Mã_thoi_tiet': weather_data['ma_thoi_tiet'],
+                'Nhiệt_độ_cao_nhất_ngày (C)': weather_data['nhiet_do_cao_nhat_ngay'],
+                'Nhiệt_độ_thấp_nhất_ngày (C)': weather_data['nhiet_do_thap_nhat_ngay'],
                 'Tổng_lượng_mưa_ngày (mm)': weather_data['tong_luong_mua_ngay'],
-                'Gió_tốc_độ (m/s)': weather_data['gio_toc_do'],
-                'Gió_tốc_độ_giờ (m/s)': weather_data['gio_toc_do_gio'],
-                'Mã_thời_tiet': weather_data['ma_thoi_tiet'],
-                'Là_dự_báo': 'Có' if weather_data['la_du_bao'] else 'Không',
-                'Thời_gian_cập_nhật': weather_data['thoi_gian_cap_nhat']
-            }]
-            
+                'Là_dự_báo': 'Có' if weather_data['la_du_bao'] else 'Không'
+            }
+
+            # Thêm dữ liệu dự báo theo 24 giờ
+            for forecast in weather_data['du_bao_ca_ngay']:
+                row = base_info.copy()
+                row['Dự_báo_giờ'] = forecast['time']
+                row['Nhiệt_độ_giờ (C)'] = forecast['temperature_2m']
+                row['Lượng_mưa_giờ (mm)'] = forecast['precipitation']
+                row['Gió_tốc_độ_giờ (m/s)'] = forecast['wind_speed_10m']
+                excel_data.append(row)
+
             # Tạo DataFrame và lưu vào Excel
             df = pd.DataFrame(excel_data)
             os.makedirs("datatypexlsx", exist_ok=True)
-            filename = os.path.join("datatypexlsx", f"{city_name}.xlsx")
+            filename = os.path.join("datatypexlsx", f"{city_name}_24h.xlsx")
             df.to_excel(filename, index=False, engine='openpyxl')
             
             print(f"💾 Đã lưu file: {filename}")
@@ -143,38 +149,40 @@ class NASAWeather:
             return False
 
 def display_weather_info(weather_data, city_name):
-    """Hiển thị thông tin thời tiết"""
+    """Hiển thị thông tin thời tiết đã tối ưu"""
     if not weather_data:
         print(f"❌ Không có dữ liệu cho {city_name}")
         return
-    # In Dữ Liệu Ra Ngay
-    print(f"\n🌤️  THÔNG TIN THỜI TIẾT - {city_name.upper()}")
+    
+    print(f"\n🌤️ THÔNG TIN THỜI TIẾT - {city_name.upper()}")
     print("="*50)
-    print(f"📍 Vị trí: {weather_data['vi_do']}°N, {weather_data['kinh_do']}°E")
-    print(f"📅 Thời gian: {weather_data['thoi_gian']}")
+    print("➡️ THỜI TIẾT HIỆN TẠI:")
     print(f"📊 Nguồn: {weather_data['nguon']}")
-    print("="*50)
-    print(f"🌡️  Nhiệt độ hiện tại: {weather_data['nhiet_do_hien_tai']}°C")
-    print(f"🌡️  Nhiệt độ giờ: {weather_data['nhiet_do_gio']}°C")
-    print(f"⬆️  Cao nhất: {weather_data['nhiet_do_cao_nhat']}°C")
-    print(f"⬇️  Thấp nhất: {weather_data['nhiet_do_thap_nhat']}°C")
+    print(f"📅 Thời gian: {weather_data['thoi_gian']}")
+    print(f"🌡️ Nhiệt độ: {weather_data['nhiet_do_hien_tai']}°C")
     print(f"💧 Độ ẩm: {weather_data['do_am']}%")
-    print(f"🌧️  Mưa hiện tại: {weather_data['luong_mua_hien_tai']}mm")
-    print(f"🌧️  Mưa giờ: {weather_data['luong_mua_gio']}mm")
+    print(f"💨 Gió: {weather_data['gio_toc_do_hien_tai']} m/s")
     print(f"📈 Tổng mưa ngày: {weather_data['tong_luong_mua_ngay']}mm")
-    print(f"💨 Gió: {weather_data['gio_toc_do']} m/s")
+    print("---")
+    
+    print("🔮 DỰ BÁO 24H TIẾP THEO:")
+    for forecast in weather_data['du_bao_ca_ngay']:
+        time_str = datetime.fromisoformat(forecast['time']).strftime("%H:%M")
+        print(f"   - Giờ {time_str}: Nhiệt độ: {forecast['temperature_2m']}°C, Mưa: {forecast['precipitation']}mm, Gió: {forecast['wind_speed_10m']} m/s")
+    
     print("="*50)
+
 def main():
     """Hàm chính"""
     print("🚀 ỨNG DỤNG LẤY DỮ LIỆU THỜI TIẾT TỪ NASA")
     print("📡 RUNNING...\n")
-    # Danh sách 3 thành phố
+    
     cities = {
         "1": {"name": "Ninh Bình", "coords": (20.2506, 105.9745)},
         "2": {"name": "Hồ Chí Minh", "coords": (10.8231, 106.6297)},
         "3": {"name": "Hà Nội", "coords": (21.0278, 105.8342)}
     }
-    # Tạo client NASA
+    
     nasa_client = NASAWeather()
     while True:
         print("📍 CHỌN THÀNH PHỐ:")
@@ -183,6 +191,7 @@ def main():
         print("3. Hà Nội")
         print("4. Tất cả 3 thành phố")
         print("0. Thoát")
+        
         try:
             choice = input("\n👉 Nhập lựa chọn của bạn (0-4): ").strip()
             
@@ -194,33 +203,20 @@ def main():
                 selected_cities = []
                 
                 if choice == "4":
-                    # Lấy tất cả 3 thành phố
                     selected_cities = list(cities.values())
-                    print("🌍 Đang lấy dữ liệu cho cả 3 thành phố...")
                 else:
-                    # Lấy 1 thành phố
-                    city_info = cities[choice]
-                    selected_cities = [city_info]
-                    print(f"🌍 Đang lấy dữ liệu cho {city_info['name']}...")
+                    selected_cities = [cities[choice]]
                 
-                # Lấy dữ liệu cho các thành phố đã chọn
                 for city_info in selected_cities:
                     city_name = city_info["name"]
                     lat, lon = city_info["coords"]
                     
-                    # Lấy dữ liệu thời tiết
                     weather_data = nasa_client.get_weather_data(city_name, lat, lon)
                     
                     if weather_data:
-                        # Hiển thị thông tin
                         display_weather_info(weather_data, city_name)
-                        
-                        # Lưu vào file JSON
                         nasa_client.save_to_json(weather_data, city_name)
-                        
-                        # Lưu vào file Excel
                         nasa_client.save_to_excel(weather_data, city_name)
-                        
                         print(f"✅ Hoàn thành xử lý cho {city_name}\n")
                     else:
                         print(f"❌ Không thể lấy dữ liệu cho {city_name}\n")
@@ -234,6 +230,7 @@ def main():
             print("❌ Vui lòng nhập số hợp lệ!")
         except Exception as e:
             print(f"❌ Lỗi: {e}")
+            
 if __name__ == "__main__":
     try:
         main()
